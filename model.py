@@ -6,14 +6,15 @@ import random
 from transformers import BertPreTrainedModel
 from transformers.modeling_bert import BertEncoder, BertPooler, BertLayerNorm
 
-def mixup_process(out, target_reweighted, lam):
-    indices = np.random.permutation(out.size(0))
+def mixup_process(out, target_reweighted, lam, indices=None):
+    if indices is None:
+        indices = np.random.permutation(out.size(0))
     out = (out.T*lam).T + (out[indices].T*(1-lam)).T
     target_shuffled_onehot = target_reweighted[indices]
     lam2 = lam.clone().detach()
     target_reweighted = (target_reweighted.T * lam2).T + (target_shuffled_onehot.T * (1 - lam2)).T
     #print(out,target_reweighted)
-    return out, target_reweighted
+    return out, target_reweighted, indices
 
 class SoftEmbedding(nn.Module):
     def __init__(self, num_embeddings, embedding_dim):
@@ -152,8 +153,9 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.init_weights()
 
     def forward(self, input_ids_or_probs, token_type_ids=None,
-                attention_mask=None, use_input_probs=False, target=None, mixup_hidden = False, layer_mix=None, lam=None):
-
+                attention_mask=None, use_input_probs=False, target=None, mixup_hidden = False, layer_mix=None, lam=None, indices=None):
+        if indices==None:
+            indices = np.random.permutation(input_ids_or_probs.size(0))
         if mixup_hidden:
             if layer_mix == None:
                 layer_mix = random.randint(0, 2)  # random mixup in different layers
@@ -161,13 +163,13 @@ class BertForSequenceClassification(BertPreTrainedModel):
                 lam = np.random.beta(1, 1) # random lam if not set
             x = self.bert.get_token_embeddings(input_ids_or_probs, token_type_ids, attention_mask)
             if layer_mix==0:
-                x, target = mixup_process(x, target, lam)
+                x, target,indices = mixup_process(x, target, lam, indices=indices)
             x = self.bert.get_sent_embedding(x, attention_mask)
             if layer_mix==1:
-                x, target = mixup_process(x, target, lam)
-            x = self.dropout(x)
+                x, target,indices = mixup_process(x, target, lam,ndices=indices)
+            #x = self.dropout(x)
             logits = self.classifier(x)
-            return logits, target
+            return logits, target, indices
 
         else:
             _, pooled_output = self.bert(
@@ -221,10 +223,13 @@ class CNN(nn.Module):
             # if 'fc' in name and 'weight' in name:
             #         torch.nn.init.xavier_normal_(weight,gain=2)
 
-    def forward(self, x, target=None, mixup_hidden = False, layer_mix=None, lam=None):
+    def forward(self, x, target=None, mixup_hidden = False, layer_mix=None, lam=None, indices=None):
         # target is one_hot vector
         x = x.long() # make sure the input type is long
+
         if mixup_hidden: # if we make mixup in hidden state
+            if indices == None:
+                indices = np.random.permutation(x.size(0))
             if layer_mix == None:
                 layer_mix = random.randint(0, 2)  # random mixup in different layers
             if lam==None:
@@ -232,7 +237,7 @@ class CNN(nn.Module):
             # layer#0
             x = self.embedding(x).view(-1, 1, self.WORD_DIM * self.MAX_SENT_LEN)
             if layer_mix == 0: # word
-                x, target = mixup_process(x, target, lam)
+                x, target,indices = mixup_process(x, target, lam, indices=indices)
             # layer#1
             conv_results = [
                 F.max_pool1d(F.relu(self.conv[i](x)), self.MAX_SENT_LEN - self.FILTERS[i] + 1)
@@ -240,14 +245,14 @@ class CNN(nn.Module):
                 for i in range(len(self.FILTERS))]
             x = torch.cat(conv_results, 1)
             if layer_mix == 1: # sentence
-                x, target = mixup_process(x, target, lam)
+                x, target,indices = mixup_process(x, target, lam,indices=indices)
             # layer#2
             if self.DROPOUT_PROB>0 and self.DROPOUT_PROB<1:
                 x =self.dropout(x)
             x = self.fc(x)
             if layer_mix == 2:
-                x, target = mixup_process(x, target, lam)
-            return x, target
+                x, target,indices = mixup_process(x, target, lam)
+            return x, target, indices
 
         else:
 
@@ -290,16 +295,19 @@ class RNN(nn.Module):
         self.fc1 = nn.Linear(self.HIDDEN_SIZE * 2, self.CLASS_SIZE)
 
 
-    def forward(self, x, target=None, mixup_hidden = False, layer_mix=None, lam=None):
+    def forward(self, x, target=None, mixup_hidden = False, layer_mix=None, lam=None,indices=None ):
         x = self.embedding(x)  # [batch_size, seq_len, embeding]=[128, 32, 300]
+
         if mixup_hidden:
+            if indices == None:
+                indices = np.random.permutation(x.size(0))
             if layer_mix == None:
                 layer_mix = random.randint(0, 2)  # random mixup in different layers
             if lam==None:
                 lam = np.random.beta(1, 1) # random lam if not set
             # layer#0
             if layer_mix == 0: # word
-                x, target = mixup_process(x, target, lam)
+                x, target,indices = mixup_process(x, target, lam, indices=indices)
             H, _ = self.lstm(x)  # [batch_size, seq_len, hidden_size * num_direction]=[128, 32, 256]
 
             M = self.tanh1(H)  # [128, 32, 256]
@@ -308,10 +316,10 @@ class RNN(nn.Module):
             out = H * alpha  # [128, 32, 256]
             out = torch.sum(out, 1)  # [128, 256]
             if layer_mix == 1: # sentence
-                out, target = mixup_process(out, target, lam)
+                out, target,indices = mixup_process(out, target, lam, indices=indices)
             out = F.relu(out)
             out = self.fc1(out)
-            return out, target
+            return out, target,indices
         else:
             H, _ = self.lstm(x)  # [batch_size, seq_len, hidden_size * num_direction]=[128, 32, 256]
 

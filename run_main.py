@@ -90,10 +90,10 @@ def train(model, train_set, test_set, params, logger):
             if adv_type == 1:
                 lam.requires_grad_()
                 if params['CLASSIFIER'] != "BERT":
-                    mixed_x, mixed_y = model(batch_x, target=one_hot_batch_y, mixup_hidden=params['MIX_HIDDEN'],
+                    mixed_x, mixed_y, indices = model(batch_x, target=one_hot_batch_y, mixup_hidden=params['MIX_HIDDEN'],
                                              layer_mix=params['LAYER_MIX'], lam=lam)
                 else:
-                    mixed_x, mixed_y = model(input_ids, segment_ids, input_mask, target=one_hot_batch_y,
+                    mixed_x, mixed_y, indices  = model(input_ids, segment_ids, input_mask, target=one_hot_batch_y,
                                              mixup_hidden=True,
                                              layer_mix=params['LAYER_MIX'], lam=lam)
                 pred = softmax(mixed_x)
@@ -104,17 +104,17 @@ def train(model, train_set, test_set, params, logger):
                     torch.mean(loss).backward(retain_graph=True)
                     loss_pre = loss
                     lgrad = lam.grad
-                    lam = lam.clone().detach() - gamma * lgrad
+                    lam = lam.clone().detach() + gamma * lgrad
                     # renew the interpolated input and label
                     if params['CLASSIFIER'] != "BERT":
-                        mixed_x_, mixed_y_ = model(batch_x, target=one_hot_batch_y, mixup_hidden=params['MIX_HIDDEN'],
-                                                   layer_mix=params['LAYER_MIX'], lam=lam)
+                        mixed_x_, mixed_y_, _ = model(batch_x, target=one_hot_batch_y, mixup_hidden=params['MIX_HIDDEN'],
+                                                   layer_mix=params['LAYER_MIX'], lam=lam, indices=indices)
                     else:
-                        mixed_x_, mixed_y_ = model(input_ids, segment_ids, input_mask, target=one_hot_batch_y,
+                        mixed_x_, mixed_y_, _ = model(input_ids, segment_ids, input_mask, target=one_hot_batch_y,
                                                    mixup_hidden=True,
-                                                   layer_mix=params['LAYER_MIX'], lam=lam)
+                                                   layer_mix=params['LAYER_MIX'], lam=lam,indices=indices)
                     pred = softmax(mixed_x_)
-                    loss = bce_loss(pred, mixed_y_)
+                    loss = bce_loss(pred, mixed_y)
                     loss_cur = loss.sum(dim=1)
                     # get the loss delta, record the position that loss delta greater than zero
                     loss_delta = loss_cur - loss_pre
@@ -234,7 +234,7 @@ def main():
     parser.add_argument("--scale_rate", default=1., type=float, help="scale rate")
     parser.add_argument("--gamma", default=0.002, type=float, help="gamma")
     parser.add_argument("--max_sent_len", default=-1, type=int, help="max_length")
-    parser.add_argument("--classifier", default="CNN", type=str, help="CNN,RNN,BERT")
+    parser.add_argument("--classifier", default="BERT", type=str, help="CNN,RNN,BERT")
 
     logger = logging.getLogger(__name__)
     logger.setLevel(level=logging.INFO)

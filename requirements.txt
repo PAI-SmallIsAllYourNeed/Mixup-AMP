@@ -1,0 +1,4 @@
+pytorch==1.4.0
+numpy>=1.19.5
+transformers==2.1.0
+tqdm
