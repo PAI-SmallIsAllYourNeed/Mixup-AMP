@@ -17,7 +17,7 @@ config.json
 vocab.txt
 ```
 
-Enter the project root directory. Dowload GloVe embeddings glove.840B.300d.zip from [link](https://nlp.stanford.edu/data/glove.840B.300d.zip)
+Enter the project root directory. Download GloVe embeddings glove.840B.300d.zip from [link](https://nlp.stanford.edu/data/glove.840B.300d.zip)
 
 ## Run 
 Detailed descriptions of arguments are provided in ```run_main.py```. For run the default parameters,
