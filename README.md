@@ -20,7 +20,7 @@ vocab.txt
 Enter the project root directory. Dowload GloVe embeddings glove.840B.300d.zip from [link](https://nlp.stanford.edu/data/glove.840B.300d.zip)
 
 ## Run 
-Detailed descriptions of arguments are provided in ```main.py```. For run the default parameters,
+Detailed descriptions of arguments are provided in ```run_main.py```. For run the default parameters,
 ```
 python run_main.py
 ```
